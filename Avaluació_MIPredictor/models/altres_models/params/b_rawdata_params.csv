@@ -1,0 +1,9 @@
+bootstrap,True
+criterion,entropy
+max_depth,4
+max_features,sqrt
+min_samples_leaf,0.1
+min_samples_split,0.25
+n_estimators,500
+score,0.6304347826086957
+model_type,<class 'sklearn.ensemble._forest.RandomForestClassifier'>

@@ -1,0 +1,7 @@
+batch_size,32
+epochs,1000
+layer,"[50, 25]"
+lr,0.001
+n_features,101
+score,0.6554882154882155
+model_type,<class 'keras.engine.sequential.Sequential'>
