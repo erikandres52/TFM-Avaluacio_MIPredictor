@@ -1,0 +1,33 @@
+#!/bin/bash
+sra_acc_list=$1
+cp -n $sra_acc_list copy_$sra_acc_list
+while [[ -s $sra_acc_list ]]; do
+        # DOWNLOAD FASTQ
+        cat $sra_acc_list | parallel -j 1 --memfree 1G --halt now,success=1 --noswap "prefetch {}"
+        cd sratoolkit/sra
+        for f in *.sra.*; do
+                rm -r ${f}
+        done
+        for f in SRR*; do
+                parallel-fastq-dump --threads 7 --split-files --sra-id ${f} --outdir SRR_files
+        done
+        for f in SRR*.sra; do
+                rm -r ${f}
+        done
+	cd
+        mv sratoolkit/sra/SRR_files ./
+        # TAXONOMIC PROFILING (Kraken2 + Bracken)
+        ls SRR_files | awk -F '_' '{print $1}' | sort | uniq | parallel -j 1 --memfree 1G --noswap "kraken2 SRR_files/* --db kraken2/db --output kraken2/out/{}_output.txt --report kraken2/out/{}_report.txt –-threads 7 --report-zero-counts –-use-names –-paired"
+        ls SRR_files | awk -F '_' '{print $1}' | sort | uniq | parallel -j 1 --memfree 1G --noswap "bracken -d kraken2/db -i kraken2/out/{}_report.txt -o kraken2/out/{}_bracken_S -l 'S'"
+        ls SRR_files | awk -F '_' '{print $1}' | sort | uniq | parallel -j 1 --memfree 1G --noswap "bracken -d kraken2/db -i kraken2/out/{}_report.txt -o kraken2/out/{}_bracken_S1 -l 'S1'"
+        # UPDATE ACCESSION LIST
+        ls SRR_files | awk -F '_' '{print $1}' | sort | uniq > temp_$sra_acc_list
+        cat temp_$sra_acc_list $sra_acc_list | sort | uniq -u > temp_temp_$sra_acc_list
+        rm -r $sra_acc_list
+        mv temp_temp_$sra_acc_list $sra_acc_list
+        # REMOVE TEMP FILES
+        ls SRR_files | awk -F '_' '{print $1}' | sort | uniq | parallel -j 1 --memfree 1G --noswap "rm -r kraken2/out/{}_output.txt"
+        rm -r SRR_files
+        rm temp_$sra_acc_list
+done
+
