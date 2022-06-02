@@ -1,0 +1,347 @@
+---
+title: "05_Preprocessa_dades_REPRO"
+author: "Erik Andrés Reig"
+date: "9/5/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Carreguem llibreries necessaries
+
+```{r libraries, warning=F}
+if (!requireNamespace("BiocManager", quietly = TRUE))
+        install.packages("BiocManager")
+#BiocManager::install("MMUPHin")
+library(MMUPHin)
+library(magrittr)
+library(dplyr)
+library(limma)
+library(edgeR)
+library(knitr)
+library(kableExtra)
+library(ggplot2)
+library(vegan)
+library(splitTools)
+library(stringr)
+library(caret)
+library(data.table)
+```
+
+Lectura d'arxius
+
+```{r read}
+### Matrius de taxonomia ###
+taxoS_DM2_raw <- read.delim("input/merged_bracken_S_DM2.txt", row.names = 1, 
+                     check.names = F)
+taxoS1_DM2_raw <- read.delim("input/merged_bracken_S1_DM2.txt", row.names=1, 
+                        check.names = F)
+
+taxoS_PD_raw <- read.delim("input/merged_bracken_S_PD.txt", row.names = 1, 
+                     check.names = F)
+taxoS1_PD_raw <- read.delim("input/merged_bracken_S1_PD.txt", row.names = 1, 
+                     check.names = F)
+
+taxoS_DM2 <- select(taxoS_DM2_raw,contains("num")) #només counts, no frac
+taxoS1_DM2 <- select(taxoS1_DM2_raw,contains("num")) #només counts, no frac
+
+taxoS_PD <- select(taxoS_PD_raw,contains("num")) #només counts, no frac
+taxoS1_PD <- select(taxoS1_PD_raw,contains("num")) #només counts, no frac
+
+nms <- as.data.frame(strsplit(names(taxoS_DM2), "_", fixed=T))[1,]
+names(taxoS_DM2) <- nms
+
+nms <- as.data.frame(strsplit(names(taxoS1_DM2), "_", fixed=T))[1,]
+names(taxoS1_DM2) <- nms
+
+nms <- as.data.frame(strsplit(names(taxoS_PD), "_", fixed=T))[1,]
+names(taxoS_PD) <- nms
+
+nms <- as.data.frame(strsplit(names(taxoS1_PD), "_", fixed=T))[1,]
+names(taxoS1_PD) <- nms
+
+### METADATA ###
+metadata_DM2 <- read.csv("input/metadades_DM2.csv")
+# reordenem per alinear mostres amb les columnes de counts
+metadata_DM2$sample2 <- metadata_DM2$sample
+metadata_DM2 <- left_join(data.frame(sample2 = names(taxoS_DM2)),
+                          metadata_DM2)
+rownames(metadata_DM2) <- metadata_DM2$sample
+
+metadata_PD <- read.csv("input/metadades_PD.csv")
+# reordenem per alinear mostres amb les columnes de counts
+metadata_PD$sample2 <- metadata_PD$sample
+metadata_PD <- left_join(data.frame(sample2 = names(taxoS_PD)),
+                          metadata_PD)
+rownames(metadata_PD) <- metadata_PD$sample
+
+```
+
+
+
+```{r }
+fit_adjust_batch_S_DM2 <- adjust_batch(feature_abd=taxoS_DM2, batch="study",
+                                 covariates = NULL,
+                                 data=metadata_DM2,
+                                 control = list(verbose=TRUE))
+
+fit_adjust_batch_S1_DM2 <- adjust_batch(feature_abd=taxoS1_DM2,
+                                        batch="study",
+                                 covariates = NULL,
+                                 data=metadata_DM2,
+                                 control = list(verbose=TRUE))
+
+taxoS_DM2_adj <- as.data.frame(fit_adjust_batch_S_DM2$feature_abd_adj)
+taxoS1_DM2_adj <- as.data.frame(fit_adjust_batch_S1_DM2$feature_abd_adj)
+
+
+fit_adjust_batch_S_PD <- adjust_batch(feature_abd=taxoS_PD, batch="study",
+                                 covariates = NULL,
+                                 data=metadata_PD,
+                                 control = list(verbose=TRUE))
+
+fit_adjust_batch_S1_PD <- adjust_batch(feature_abd=taxoS1_PD,
+                                        batch="study",
+                                 covariates = NULL,
+                                 data=metadata_PD,
+                                 control = list(verbose=TRUE))
+
+taxoS_PD_adj <- as.data.frame(fit_adjust_batch_S_PD$feature_abd_adj)
+taxoS1_PD_adj <- as.data.frame(fit_adjust_batch_S1_PD$feature_abd_adj)
+```
+
+
+```{r}
+preProcValues_S_DM2<- preProcess(taxoS_DM2_adj, method = "range")
+taxoS_DM2_adj_norm <- predict(preProcValues_S_DM2, taxoS_DM2_adj)
+
+preProcValues_S1_DM2 <- preProcess(taxoS1_DM2_adj, method = "range")
+taxoS1_DM2_adj_norm <- predict(preProcValues_S1_DM2, taxoS1_DM2_adj)
+
+index_split_DM2 <- partition(metadata_DM2$condition, 
+                         c(train=0.70, val=0.15, test=0.15),
+                         type = "stratified",
+                         split_into_list = TRUE,
+                         use_names = TRUE,
+                         shuffle = TRUE, seed = 42)
+
+taxoS_DM2_adj_norm_test <- taxoS_DM2_adj_norm[,index_split_DM2$test]
+taxoS1_DM2_adj_norm_test <- taxoS1_DM2_adj_norm[,index_split_DM2$test]
+
+
+
+preProcValues_S_PD<- preProcess(taxoS_PD_adj, method = "range")
+taxoS_PD_adj_norm <- predict(preProcValues_S_PD, taxoS_PD_adj)
+
+preProcValues_S1_PD <- preProcess(taxoS1_PD_adj, method = "range")
+taxoS1_PD_adj_norm <- predict(preProcValues_S1_PD, taxoS1_PD_adj)
+
+index_split_PD <- partition(metadata_PD$condition, 
+                         c(train=0.70, val=0.15, test=0.15),
+                         type = "stratified",
+                         split_into_list = TRUE,
+                         use_names = TRUE,
+                         shuffle = TRUE, seed = 42)
+
+taxoS_PD_adj_norm_test <- taxoS_PD_adj_norm[,index_split_PD$test]
+taxoS1_PD_adj_norm_test <- taxoS1_PD_adj_norm[,index_split_PD$test]
+```
+
+Eliminem efecte batch i normalitzem train i val per separat.
+
+```{r}
+taxoS_DM2_train <- taxoS_DM2[,index_split_DM2$train]
+taxoS1_DM2_train <- taxoS1_DM2[,index_split_DM2$train]
+metadata_DM2_train <- metadata_DM2[index_split_DM2$train,]
+taxoS_DM2_val <- taxoS_DM2[,index_split_DM2$val]
+taxoS1_DM2_val <- taxoS1_DM2[,index_split_DM2$val]
+metadata_DM2_val <- metadata_DM2[index_split_DM2$val,]
+
+fit_adjust_batch_S_DM2_train <- adjust_batch(feature_abd=taxoS_DM2_train,
+                                         batch="study",
+                                         covariates = NULL,
+                                         data=metadata_DM2_train,
+                                         control = list(verbose=TRUE))
+
+fit_adjust_batch_S1_DM2_train <- adjust_batch(feature_abd=taxoS1_DM2_train,
+                                         batch="study",
+                                         covariates = NULL,
+                                         data=metadata_DM2_train,
+                                         control = list(verbose=FALSE))
+
+fit_adjust_batch_S_DM2_val <- adjust_batch(feature_abd=taxoS_DM2_val,
+                                         batch="study",
+                                         covariates = NULL,
+                                         data=metadata_DM2_val,
+                                         control = list(verbose=TRUE))
+
+fit_adjust_batch_S1_DM2_val <- adjust_batch(feature_abd=taxoS1_DM2_val,
+                                         batch="study",
+                                         covariates = NULL,
+                                         data=metadata_DM2_val,
+                                         control = list(verbose=FALSE))
+
+taxoS_DM2_adj_train <- as.data.frame(fit_adjust_batch_S_DM2_train$feature_abd_adj)
+taxoS1_DM2_adj_train <- as.data.frame(fit_adjust_batch_S1_DM2_train$feature_abd_adj)
+taxoS_DM2_adj_val <- as.data.frame(fit_adjust_batch_S_DM2_val$feature_abd_adj)
+taxoS1_DM2_adj_val <- as.data.frame(fit_adjust_batch_S1_DM2_val$feature_abd_adj)
+
+preProcValues_S_DM2_train <- preProcess(taxoS_DM2_adj_train, 
+                                        method = "range")
+preProcValues_S1_DM2_train <- preProcess(taxoS1_DM2_adj_train, 
+                                         method = "range")
+preProcValues_S_DM2_val <- preProcess(taxoS_DM2_adj_val, 
+                                      method = "range")
+preProcValues_S1_DM2_val <- preProcess(taxoS1_DM2_adj_val, 
+                                       method = "range")
+
+taxoS_DM2_adj_norm_train <- predict(preProcValues_S_DM2_train,
+                                    taxoS_DM2_adj_train)
+taxoS1_DM2_adj_norm_train <- predict(preProcValues_S1_DM2_train,
+                                     taxoS1_DM2_adj_train)
+taxoS_DM2_adj_norm_val <- predict(preProcValues_S_DM2_val, 
+                                  taxoS_DM2_adj_val)
+taxoS1_DM2_adj_norm_val <- predict(preProcValues_S1_DM2_val,
+                                   taxoS1_DM2_adj_val)
+
+
+
+taxoS_PD_train <- taxoS_PD[,index_split_PD$train]
+taxoS1_PD_train <- taxoS1_PD[,index_split_PD$train]
+metadata_PD_train <- metadata_PD[index_split_PD$train,]
+taxoS_PD_val <- taxoS_PD[,index_split_PD$val]
+taxoS1_PD_val <- taxoS1_PD[,index_split_PD$val]
+metadata_PD_val <- metadata_PD[index_split_PD$val,]
+
+fit_adjust_batch_S_PD_train <- adjust_batch(feature_abd=taxoS_PD_train,
+                                         batch="study",
+                                         covariates = NULL,
+                                         data=metadata_PD_train,
+                                         control = list(verbose=TRUE))
+
+fit_adjust_batch_S1_PD_train <- adjust_batch(feature_abd=taxoS1_PD_train,
+                                         batch="study",
+                                         covariates = NULL,
+                                         data=metadata_PD_train,
+                                         control = list(verbose=FALSE))
+
+fit_adjust_batch_S_PD_val <- adjust_batch(feature_abd=taxoS_PD_val,
+                                         batch="study",
+                                         covariates = NULL,
+                                         data=metadata_PD_val,
+                                         control = list(verbose=TRUE))
+
+fit_adjust_batch_S1_PD_val <- adjust_batch(feature_abd=taxoS1_PD_val,
+                                         batch="study",
+                                         covariates = NULL,
+                                         data=metadata_PD_val,
+                                         control = list(verbose=FALSE))
+
+taxoS_PD_adj_train <- as.data.frame(fit_adjust_batch_S_PD_train$feature_abd_adj)
+taxoS1_PD_adj_train <- as.data.frame(fit_adjust_batch_S1_PD_train$feature_abd_adj)
+taxoS_PD_adj_val <- as.data.frame(fit_adjust_batch_S_PD_val$feature_abd_adj)
+taxoS1_PD_adj_val <- as.data.frame(fit_adjust_batch_S1_PD_val$feature_abd_adj)
+
+preProcValues_S_PD_train <- preProcess(taxoS_PD_adj_train, 
+                                        method = "range")
+preProcValues_S1_PD_train <- preProcess(taxoS1_PD_adj_train, 
+                                         method = "range")
+preProcValues_S_PD_val <- preProcess(taxoS_PD_adj_val, 
+                                      method = "range")
+preProcValues_S1_PD_val <- preProcess(taxoS1_PD_adj_val, 
+                                       method = "range")
+
+taxoS_PD_adj_norm_train <- predict(preProcValues_S_PD_train,
+                                    taxoS_PD_adj_train)
+taxoS1_PD_adj_norm_train <- predict(preProcValues_S1_PD_train,
+                                     taxoS1_PD_adj_train)
+taxoS_PD_adj_norm_val <- predict(preProcValues_S_PD_val, 
+                                  taxoS_PD_adj_val)
+taxoS1_PD_adj_norm_val <- predict(preProcValues_S1_PD_val,
+                                   taxoS1_PD_adj_val)
+```
+
+Obtenim la trasposada de les matrius perquè puguin utilitzar-se en ML/DL.
+
+```{r}
+taxoS_DM2_train <- transpose(taxoS_DM2_adj_norm_train)
+taxoS1_DM2_train <- transpose(taxoS1_DM2_adj_norm_train)
+taxoS_DM2_val <- transpose(taxoS_DM2_adj_norm_val)
+taxoS1_DM2_val <- transpose(taxoS1_DM2_adj_norm_val)
+taxoS_DM2_test <- transpose(taxoS_DM2_adj_norm_test)
+taxoS1_DM2_test <- transpose(taxoS1_DM2_adj_norm_test)
+
+colnames(taxoS_DM2_train) <- rownames(taxoS_DM2_adj_norm_train)
+taxoS_DM2_train$sample <- colnames(taxoS_DM2_adj_norm_train)
+taxoS_DM2_train <- taxoS_DM2_train %>% select("sample", everything())
+colnames(taxoS1_DM2_train) <- rownames(taxoS1_DM2_adj_norm_train)
+taxoS1_DM2_train$sample <- colnames(taxoS1_DM2_adj_norm_train)
+taxoS1_DM2_train <- taxoS1_DM2_train %>% select("sample", everything())
+
+colnames(taxoS_DM2_val) <- rownames(taxoS_DM2_adj_norm_val)
+taxoS_DM2_val$sample <- colnames(taxoS_DM2_adj_norm_val)
+taxoS_DM2_val <- taxoS_DM2_val %>% select("sample", everything())
+colnames(taxoS1_DM2_val) <- rownames(taxoS1_DM2_adj_norm_val)
+taxoS1_DM2_val$sample <- colnames(taxoS1_DM2_adj_norm_val)
+taxoS1_DM2_val <- taxoS1_DM2_val %>% select("sample", everything())
+
+colnames(taxoS_DM2_test) <- rownames(taxoS_DM2_adj_norm_test)
+taxoS_DM2_test$sample <- colnames(taxoS_DM2_adj_norm_test)
+taxoS_DM2_test <- taxoS_DM2_test %>% select("sample", everything())
+colnames(taxoS1_DM2_test) <- rownames(taxoS1_DM2_adj_norm_test)
+taxoS1_DM2_test$sample <- colnames(taxoS1_DM2_adj_norm_test)
+taxoS1_DM2_test <- taxoS1_DM2_test %>% select("sample", everything())
+
+
+
+taxoS_PD_train <- transpose(taxoS_PD_adj_norm_train)
+taxoS1_PD_train <- transpose(taxoS1_PD_adj_norm_train)
+taxoS_PD_val <- transpose(taxoS_PD_adj_norm_val)
+taxoS1_PD_val <- transpose(taxoS1_PD_adj_norm_val)
+taxoS_PD_test <- transpose(taxoS_PD_adj_norm_test)
+taxoS1_PD_test <- transpose(taxoS1_PD_adj_norm_test)
+
+colnames(taxoS_PD_train) <- rownames(taxoS_PD_adj_norm_train)
+taxoS_PD_train$sample <- colnames(taxoS_PD_adj_norm_train)
+taxoS_PD_train <- taxoS_PD_train %>% select("sample", everything())
+colnames(taxoS1_PD_train) <- rownames(taxoS1_PD_adj_norm_train)
+taxoS1_PD_train$sample <- colnames(taxoS1_PD_adj_norm_train)
+taxoS1_PD_train <- taxoS1_PD_train %>% select("sample", everything())
+
+colnames(taxoS_PD_val) <- rownames(taxoS_PD_adj_norm_val)
+taxoS_PD_val$sample <- colnames(taxoS_PD_adj_norm_val)
+taxoS_PD_val <- taxoS_PD_val %>% select("sample", everything())
+colnames(taxoS1_PD_val) <- rownames(taxoS1_PD_adj_norm_val)
+taxoS1_PD_val$sample <- colnames(taxoS1_PD_adj_norm_val)
+taxoS1_PD_val <- taxoS1_PD_val %>% select("sample", everything())
+
+colnames(taxoS_PD_test) <- rownames(taxoS_PD_adj_norm_test)
+taxoS_PD_test$sample <- colnames(taxoS_PD_adj_norm_test)
+taxoS_PD_test <- taxoS_PD_test %>% select("sample", everything())
+colnames(taxoS1_PD_test) <- rownames(taxoS1_PD_adj_norm_test)
+taxoS1_PD_test$sample <- colnames(taxoS1_PD_adj_norm_test)
+taxoS1_PD_test <- taxoS1_PD_test %>% select("sample", everything())
+```
+
+Guardem arxius al disc.
+
+```{r}
+write.csv(taxoS_DM2_train,"output/taxoS_train_DM2.csv", row.names = FALSE)
+write.csv(taxoS_DM2_val,"output/taxoS_val_DM2.csv", row.names = FALSE)
+write.csv(taxoS_DM2_test,"output/taxoS_test_DM2.csv", row.names = FALSE)
+write.csv(taxoS1_DM2_train,"output/taxoS1_train_DM2.csv", row.names = FALSE)
+write.csv(taxoS1_DM2_val,"output/taxoS1_val_DM2.csv", row.names = FALSE)
+write.csv(taxoS1_DM2_test,"output/taxoS1_test_DM2.csv", row.names = FALSE)
+
+write.csv(taxoS_PD_train,"output/taxoS_train_PD.csv", row.names = FALSE)
+write.csv(taxoS_PD_val,"output/taxoS_val_PD.csv", row.names = FALSE)
+write.csv(taxoS_PD_test,"output/taxoS_test_PD.csv", row.names = FALSE)
+write.csv(taxoS1_PD_train,"output/taxoS1_train_PD.csv", row.names = FALSE)
+write.csv(taxoS1_PD_val,"output/taxoS1_val_PD.csv", row.names = FALSE)
+write.csv(taxoS1_PD_test,"output/taxoS1_test_PD.csv", row.names = FALSE)
+```
+
+
+
