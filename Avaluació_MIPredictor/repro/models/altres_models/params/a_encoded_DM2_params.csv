@@ -1,0 +1,5 @@
+n_neighbors,99
+p,2
+weights,uniform
+score,0.7586206896551724
+model_type,<class 'sklearn.neighbors._classification.KNeighborsClassifier'>

@@ -1,0 +1,8 @@
+C,0.1
+gamma,0.5
+kernel,rbf
+probability,True
+shrinking,True
+tol,0.001
+score,0.6666666666666666
+model_type,<class 'sklearn.svm._classes.SVC'>
